@@ -54,6 +54,36 @@ constexpr double ORDER_FIXED_COST = 100.0;     // Фиксированная с�
 constexpr double HOLDING_COST_PER_UNIT = 1.0;  // Стоимость хранения единицы товара в конце дня (руб.)
 
 
+// Вспомогательные функции для корректного выравнивания UTF-8 строк в консоли
+size_t utf8_length(const std::string& str) {
+    size_t len = 0;
+    for (unsigned char c : str) {
+        if ((c & 0xC0) != 0x80) {
+            len++;
+        }
+    }
+    return len;
+}
+
+std::string pad_right(const std::string& str, size_t width) {
+    size_t len = utf8_length(str);
+    if (len >= width) return str;
+    return str + std::string(width - len, ' ');
+}
+
+std::string pad_left(const std::string& str, size_t width) {
+    size_t len = utf8_length(str);
+    if (len >= width) return str;
+    return std::string(width - len, ' ') + str;
+}
+
+std::string format_double(double val, int precision) {
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(precision) << val;
+    return ss.str();
+}
+
+
 // Структура результатов одного 365-дневного прогона
 struct SingleRunResult {
     int total_demand = 0;
@@ -129,30 +159,131 @@ SingleRunResult simulate_year(const std::vector<int>& demand_series, int thresho
 }
 
 
-int main() {
+// Демонстрация контрольного примера с подробным выводом каждого дня
+void run_control_example() {
+    std::cout << "\n========================================================================================================================\n";
+    std::cout << "                         КОНТРОЛЬНЫЙ ПРИМЕР: ДЕМОНСТРАЦИЯ ЛОГИКИ МОДЕЛИ (10 ДНЕЙ)\n";
+    std::cout << "========================================================================================================================\n";
+    std::cout << "Параметры: Порог заказа <= 20 ед., Партия = 40 ед., Срок доставки = 3 дня (заказ вечером дня t -> утром t+3).\n";
+    std::cout << "Начальный остаток дня 1 = 40 ед. Доход = 40 руб./ед., Заказ = 100 руб., Хранение = 1 руб./ед. в конце дня.\n\n";
+
+    const std::vector<int> test_demands = {8, 14, 10, 12, 5, 12, 8, 11, 6, 7};
+    int stock = INITIAL_STOCK;
+    bool order_in_transit = false;
+    int order_arrival_day = -1;
+    int order_counter = 0;
+
+    double cum_revenue = 0.0;
+    double cum_order_cost = 0.0;
+    double cum_holding_cost = 0.0;
+    double cum_profit = 0.0;
+    int cum_sales = 0;
+    int cum_lost = 0;
+
+    std::cout << pad_right("День", 6)
+              << pad_right("Доставка", 10)
+              << pad_right("Склад-утро", 12)
+              << pad_right("Спрос", 8)
+              << pad_right("Продано", 9)
+              << pad_right("Потери", 8)
+              << pad_right("Остаток", 10)
+              << pad_right("Хранение", 10)
+              << pad_right("Заказ", 8)
+              << pad_right("Прибыль/день", 14)
+              << pad_right("Накопл.прибыль", 16)
+              << "Статус заказа\n";
+    std::cout << std::string(120, '-') << "\n";
+
+    for (int day = 1; day <= 10; ++day) {
+        int delivery = 0;
+        std::string order_status = "-";
+
+        // 1. Утренний приём поставки
+        if (order_in_transit && day == order_arrival_day) {
+            delivery = ORDER_BATCH_SIZE;
+            stock += ORDER_BATCH_SIZE;
+            order_in_transit = false;
+            order_arrival_day = -1;
+            order_status = "Поставка принята (+40 ед.)";
+        }
+
+        int stock_morning = stock;
+
+        // 2. Продажи
+        int demand = test_demands[day - 1];
+        int sold = std::min(stock, demand);
+        int lost = demand - sold;
+        stock -= sold;
+
+        cum_sales += sold;
+        cum_lost += lost;
+
+        // 3. Затраты и доходы дня
+        double day_revenue = sold * PROFIT_PER_UNIT;
+        double day_holding = stock * HOLDING_COST_PER_UNIT;
+        double day_order_cost = 0.0;
+
+        // 4. Проверка дозаказа
+        if (!order_in_transit && stock <= 20) {
+            order_in_transit = true;
+            order_arrival_day = day + LEAD_TIME_DAYS;
+            day_order_cost = ORDER_FIXED_COST;
+            order_counter++;
+            order_status = "Заказ #" + std::to_string(order_counter) + " (прибытие утром дня " + std::to_string(order_arrival_day) + ")";
+        } else if (order_in_transit) {
+            order_status = "В пути (прибытие утром дня " + std::to_string(order_arrival_day) + ")";
+        }
+
+        double day_profit = day_revenue - day_order_cost - day_holding;
+        cum_revenue += day_revenue;
+        cum_order_cost += day_order_cost;
+        cum_holding_cost += day_holding;
+        cum_profit += day_profit;
+
+        std::string deliv_str = (delivery > 0) ? ("+" + std::to_string(delivery)) : "0";
+
+        std::cout << pad_right(std::to_string(day), 6)
+                  << pad_right(deliv_str, 10)
+                  << pad_right(std::to_string(stock_morning), 12)
+                  << pad_right(std::to_string(demand), 8)
+                  << pad_right(std::to_string(sold), 9)
+                  << pad_right(std::to_string(lost), 8)
+                  << pad_right(std::to_string(stock), 10)
+                  << pad_right(std::to_string(static_cast<int>(day_holding)), 10)
+                  << pad_right(std::to_string(static_cast<int>(day_order_cost)), 8)
+                  << pad_right(std::to_string(static_cast<int>(day_profit)), 14)
+                  << pad_right(std::to_string(static_cast<int>(cum_profit)), 16)
+                  << order_status << "\n";
+    }
+
+    std::cout << std::string(120, '-') << "\n";
+    std::cout << "ИТОГИ КОНТРОЛЬНОГО ПРИМЕРА ЗА 10 ДНЕЙ:\n";
+    std::cout << "  - Всего поступило спроса: " << (cum_sales + cum_lost) << " ед.\n";
+    std::cout << "  - Продано единиц: " << cum_sales << " ед. (Выручка: " << cum_sales << " * 40 = " << cum_revenue << " руб.)\n";
+    std::cout << "  - Потерянный спрос: " << cum_lost << " ед. (из-за нехватки товара в дни 4 и 9)\n";
+    std::cout << "  - Оформлено заказов: " << order_counter << " шт. (Затраты: " << order_counter << " * 100 = " << cum_order_cost << " руб.)\n";
+    std::cout << "  - Затраты на хранение суммарно: " << cum_holding_cost << " руб.\n";
+    std::cout << "  - ИТОГОВАЯ ЧИСТАЯ ПРИБЫЛЬ: " << cum_revenue << " - " << cum_order_cost << " - " << cum_holding_cost 
+              << " = " << cum_profit << " руб.\n";
+    std::cout << "\nКлючевые выводы по контрольному примеру:\n";
+    std::cout << "  1) Доставка через 3 дня подтверждена: заказ вечером дня 2 прибыл утром дня 5 (ровно 3 дня).\n";
+    std::cout << "     Аналогично, заказ вечером дня 7 прибыл утром дня 10.\n";
+    std::cout << "  2) Блокировка повторных заказов работает: в дни 3 и 4 остаток был <= 20, но заказ не дублировался,\n"
+              << "     так как предыдущий заказ уже находился в пути.\n";
+    std::cout << "  3) Корректность начисления затрат: плата за хранение начисляется строго на фактический остаток в конце дня,\n"
+              << "     при нулевом остатке плата за хранение равна 0 руб.\n";
+    std::cout << "========================================================================================================================\n\n";
+}
+
+
+int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    std::cout << "Базовая модель управления товарными запасами (Вариант 10)\n";
-    std::cout << "Тестовый прогон на 365 дней (спрос U[0, 8], порог <= 20 ед.)...\n";
+    std::cout << "========================================================================================\n";
+    std::cout << "    КУРСОВАЯ РАБОТА: ИССЛЕДОВАНИЕ СПОСОБОВ ПОПОЛНЕНИЯ ТОВАРНЫХ ЗАПАСОВ (ВАРИАНТ № 10)\n";
+    std::cout << "========================================================================================\n";
 
-    std::mt19937 rng(42);
-    std::uniform_int_distribution<int> dist(0, 8);
-    std::vector<int> demands(TOTAL_DAYS);
-    for (int i = 0; i < TOTAL_DAYS; ++i) {
-        demands[i] = dist(rng);
-    }
-
-    SingleRunResult res = simulate_year(demands, 20);
-    std::cout << "Результаты тестового года:\n";
-    std::cout << "  Спрос: " << res.total_demand << " ед.\n";
-    std::cout << "  Продано: " << res.total_sales << " ед.\n";
-    std::cout << "  Потери: " << res.total_lost_sales << " ед.\n";
-    std::cout << "  Заказов: " << res.num_orders << "\n";
-    std::cout << "  Выручка: " << res.revenue << " руб.\n";
-    std::cout << "  Затраты на хранение: " << res.holding_cost << " руб.\n";
-    std::cout << "  Затраты на заказы: " << res.order_cost << " руб.\n";
-    std::cout << "  Чистая прибыль: " << res.net_profit << " руб.\n";
-    std::cout << "  Средний остаток: " << res.avg_stock << " ед.\n";
+    run_control_example();
     return 0;
 }
