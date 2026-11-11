@@ -99,6 +99,28 @@ struct SingleRunResult {
 };
 
 
+// Структура агрегированной статистики по серии из N экспериментов
+struct AggregateStats {
+    std::string demand_name;
+    int max_demand;
+    int threshold;
+    int num_experiments;
+    
+    double mean_profit = 0.0;
+    double mean_lost_sales = 0.0;
+    double mean_avg_stock = 0.0;
+    double mean_orders = 0.0;
+    double mean_sales = 0.0;
+    double mean_demand = 0.0;
+    double mean_fill_rate = 0.0;
+    double mean_revenue = 0.0;
+    double mean_order_cost = 0.0;
+    double mean_holding_cost = 0.0;
+
+    double std_profit = 0.0;
+};
+
+
 // Функция симуляции одного года при заданной последовательности спроса
 SingleRunResult simulate_year(const std::vector<int>& demand_series, int threshold) {
     int stock = INITIAL_STOCK;
@@ -276,6 +298,101 @@ void run_control_example() {
 }
 
 
+// Запуск серии экспериментов методом Монте-Карло
+std::vector<AggregateStats> run_full_simulation(int num_experiments, uint64_t seed) {
+    struct DemandConfig {
+        std::string name;
+        int max_demand;
+    };
+
+    const std::vector<DemandConfig> demands = {
+        {"Обычный спрос U[0, 8]", 8},
+        {"Повышенный спрос U[0, 12]", 12}
+    };
+
+    const std::vector<int> thresholds = {10, 20, 30};
+
+    std::mt19937_64 rng(seed);
+    std::vector<AggregateStats> results;
+
+    for (const auto& d_cfg : demands) {
+        std::uniform_int_distribution<int> dist(0, d_cfg.max_demand);
+
+        struct StatAccumulator {
+            std::vector<double> profits;
+            std::vector<double> lost_sales;
+            std::vector<double> avg_stocks;
+            std::vector<double> orders;
+            std::vector<double> sales;
+            std::vector<double> demands;
+            std::vector<double> fill_rates;
+            std::vector<double> revenues;
+            std::vector<double> order_costs;
+            std::vector<double> holding_costs;
+        };
+
+        std::vector<StatAccumulator> accum(thresholds.size());
+
+        for (int exp = 0; exp < num_experiments; ++exp) {
+            // Common Random Numbers: все пороги получают одинаковый спрос
+            std::vector<int> demand_series(TOTAL_DAYS);
+            for (int i = 0; i < TOTAL_DAYS; ++i) {
+                demand_series[i] = dist(rng);
+            }
+
+            for (size_t t_idx = 0; t_idx < thresholds.size(); ++t_idx) {
+                int threshold = thresholds[t_idx];
+                SingleRunResult r = simulate_year(demand_series, threshold);
+
+                accum[t_idx].profits.push_back(r.net_profit);
+                accum[t_idx].lost_sales.push_back(r.total_lost_sales);
+                accum[t_idx].avg_stocks.push_back(r.avg_stock);
+                accum[t_idx].orders.push_back(r.num_orders);
+                accum[t_idx].sales.push_back(r.total_sales);
+                accum[t_idx].demands.push_back(r.total_demand);
+                accum[t_idx].fill_rates.push_back(r.fill_rate);
+                accum[t_idx].revenues.push_back(r.revenue);
+                accum[t_idx].order_costs.push_back(r.order_cost);
+                accum[t_idx].holding_costs.push_back(r.holding_cost);
+            }
+        }
+
+        for (size_t t_idx = 0; t_idx < thresholds.size(); ++t_idx) {
+            AggregateStats s;
+            s.demand_name = d_cfg.name;
+            s.max_demand = d_cfg.max_demand;
+            s.threshold = thresholds[t_idx];
+            s.num_experiments = num_experiments;
+
+            auto calc_mean = [](const std::vector<double>& v) {
+                return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
+            };
+
+            s.mean_profit = calc_mean(accum[t_idx].profits);
+            s.mean_lost_sales = calc_mean(accum[t_idx].lost_sales);
+            s.mean_avg_stock = calc_mean(accum[t_idx].avg_stocks);
+            s.mean_orders = calc_mean(accum[t_idx].orders);
+            s.mean_sales = calc_mean(accum[t_idx].sales);
+            s.mean_demand = calc_mean(accum[t_idx].demands);
+            s.mean_fill_rate = calc_mean(accum[t_idx].fill_rates);
+            s.mean_revenue = calc_mean(accum[t_idx].revenues);
+            s.mean_order_cost = calc_mean(accum[t_idx].order_costs);
+            s.mean_holding_cost = calc_mean(accum[t_idx].holding_costs);
+
+            double var_sum = 0.0;
+            for (double p : accum[t_idx].profits) {
+                var_sum += (p - s.mean_profit) * (p - s.mean_profit);
+            }
+            s.std_profit = std::sqrt(var_sum / num_experiments);
+
+            results.push_back(s);
+        }
+    }
+
+    return results;
+}
+
+
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -285,5 +402,12 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================================================================\n";
 
     run_control_example();
+
+    std::cout << "Запуск предварительного статистического моделирования Монте-Карло (1000 прогонов)...\n";
+    auto results = run_full_simulation(1000, 12345ULL);
+    for (const auto& r : results) {
+        std::cout << r.demand_name << ", Порог <= " << r.threshold 
+                  << " | Ср.прибыль: " << r.mean_profit << " руб., Потери: " << r.mean_lost_sales << " ед.\n";
+    }
     return 0;
 }
