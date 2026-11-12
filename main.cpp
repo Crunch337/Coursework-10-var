@@ -397,17 +397,41 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
+    int num_experiments = 1000;
+    uint64_t seed = 12345ULL;
+    bool only_demo = false;
+    bool only_sim = false;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--demo") {
+            only_demo = true;
+        } else if (arg == "--sim") {
+            only_sim = true;
+        } else if (arg == "--experiments" && i + 1 < argc) {
+            num_experiments = std::stoi(argv[++i]);
+        } else if (arg == "--seed" && i + 1 < argc) {
+            seed = std::stoull(argv[++i]);
+        }
+    }
+
     std::cout << "========================================================================================\n";
     std::cout << "    КУРСОВАЯ РАБОТА: ИССЛЕДОВАНИЕ СПОСОБОВ ПОПОЛНЕНИЯ ТОВАРНЫХ ЗАПАСОВ (ВАРИАНТ № 10)\n";
     std::cout << "========================================================================================\n";
 
-    run_control_example();
+    if (!only_sim) {
+        run_control_example();
+    }
 
-    std::cout << "Запуск предварительного статистического моделирования Монте-Карло (1000 прогонов)...\n";
-    auto results = run_full_simulation(1000, 12345ULL);
-    for (const auto& r : results) {
-        std::cout << r.demand_name << ", Порог <= " << r.threshold 
-                  << " | Ср.прибыль: " << r.mean_profit << " руб., Потери: " << r.mean_lost_sales << " ед.\n";
+    if (!only_demo) {
+        std::cout << "Запуск статистического моделирования методом Монте-Карло...\n";
+        std::cout << "Параметры: " << num_experiments << " экспериментов по " << TOTAL_DAYS << " дней. Seed = " << seed << "\n";
+        auto results = run_full_simulation(num_experiments, seed);
+        for (const auto& r : results) {
+            std::cout << r.demand_name << ", Порог <= " << r.threshold 
+                      << " | Ср.прибыль: " << r.mean_profit << " руб., StdDev: " << r.std_profit
+                      << ", Fill Rate: " << r.mean_fill_rate << "%\n";
+        }
     }
     return 0;
 }
