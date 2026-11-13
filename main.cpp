@@ -393,6 +393,89 @@ std::vector<AggregateStats> run_full_simulation(int num_experiments, uint64_t se
 }
 
 
+// Печать итоговой сравнительной таблицы
+void print_comparison_table(const std::vector<AggregateStats>& results) {
+    std::cout << "\n========================================================================================================================\n";
+    std::cout << "                  СРАВНИТЕЛЬНАЯ ТАБЛИЦА РЕЗУЛЬТАТОВ МОДЕЛИРОВАНИЯ (1000 ЭКСПЕРИМЕНТОВ ПО 365 ДНЕЙ)\n";
+    std::cout << "========================================================================================================================\n";
+    std::cout << pad_right("Уровень спроса", 28)
+              << pad_right("Порог заказа", 15)
+              << pad_left("Ср.прибыль (руб)", 18)
+              << pad_left("Потер.продажи", 16)
+              << pad_left("Ср.остаток(ед)", 16)
+              << pad_left("Ср.заказов", 13)
+              << pad_left("Удовл.спрос", 14)
+              << "\n";
+    std::cout << std::string(120, '-') << "\n";
+
+    for (const auto& r : results) {
+        std::string thresh_str = "<= " + std::to_string(r.threshold) + " ед.";
+        std::cout << pad_right(r.demand_name, 28)
+                  << pad_right(thresh_str, 15)
+                  << pad_left(format_double(r.mean_profit, 2), 18)
+                  << pad_left(format_double(r.mean_lost_sales, 2), 16)
+                  << pad_left(format_double(r.mean_avg_stock, 2), 16)
+                  << pad_left(format_double(r.mean_orders, 2), 13)
+                  << pad_left(format_double(r.mean_fill_rate, 2) + "%", 14)
+                  << "\n";
+    }
+    std::cout << std::string(120, '-') << "\n\n";
+
+    // Детализация финансовых потоков
+    std::cout << "========================================================================================================================\n";
+    std::cout << "                                      ДЕТАЛИЗАЦИЯ ФИНАНСОВЫХ СТОИМОСТЕЙ (РУБЛИ)\n";
+    std::cout << "========================================================================================================================\n";
+    std::cout << pad_right("Уровень спроса", 28)
+              << pad_right("Порог заказа", 15)
+              << pad_left("Выручка (продажи)", 20)
+              << pad_left("Затраты на заказы", 20)
+              << pad_left("Затраты на хранение", 22)
+              << pad_left("Чистая прибыль", 18)
+              << "\n";
+    std::cout << std::string(123, '-') << "\n";
+
+    for (const auto& r : results) {
+        std::string thresh_str = "<= " + std::to_string(r.threshold) + " ед.";
+        std::cout << pad_right(r.demand_name, 28)
+                  << pad_right(thresh_str, 15)
+                  << pad_left(format_double(r.mean_revenue, 1), 20)
+                  << pad_left(format_double(r.mean_order_cost, 1), 20)
+                  << pad_left(format_double(r.mean_holding_cost, 1), 22)
+                  << pad_left(format_double(r.mean_profit, 2), 18)
+                  << "\n";
+    }
+    std::cout << std::string(123, '-') << "\n\n";
+}
+
+
+// Псевдографическая диаграмма прибыли в консоли
+void print_ascii_profit_chart(const std::vector<AggregateStats>& results) {
+    std::cout << "========================================================================================\n";
+    std::cout << "                         ДИАГРАММА СРЕДНЕЙ ГОДОВОЙ ПРИБЫЛИ\n";
+    std::cout << "========================================================================================\n";
+
+    double max_profit = 0.0;
+    for (const auto& r : results) {
+        if (r.mean_profit > max_profit) max_profit = r.mean_profit;
+    }
+
+    const int max_bar_width = 45;
+
+    for (const auto& r : results) {
+        int bar_len = static_cast<int>((r.mean_profit / max_profit) * max_bar_width);
+        std::string bar(bar_len, '#');
+
+        std::string short_demand = (r.max_demand == 8) ? "Спрос [0, 8] " : "Спрос [0,12] ";
+        std::string label = short_demand + "| Порог <=" + std::to_string(r.threshold);
+
+        std::cout << pad_right(label, 24) << " ["
+                  << pad_right(bar, max_bar_width) << "] "
+                  << pad_left(format_double(r.mean_profit, 1) + " руб.", 15) << "\n";
+    }
+    std::cout << "========================================================================================\n\n";
+}
+
+
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -427,11 +510,8 @@ int main(int argc, char* argv[]) {
         std::cout << "Запуск статистического моделирования методом Монте-Карло...\n";
         std::cout << "Параметры: " << num_experiments << " экспериментов по " << TOTAL_DAYS << " дней. Seed = " << seed << "\n";
         auto results = run_full_simulation(num_experiments, seed);
-        for (const auto& r : results) {
-            std::cout << r.demand_name << ", Порог <= " << r.threshold 
-                      << " | Ср.прибыль: " << r.mean_profit << " руб., StdDev: " << r.std_profit
-                      << ", Fill Rate: " << r.mean_fill_rate << "%\n";
-        }
+        print_comparison_table(results);
+        print_ascii_profit_chart(results);
     }
     return 0;
 }
