@@ -476,6 +476,34 @@ void print_ascii_profit_chart(const std::vector<AggregateStats>& results) {
 }
 
 
+// Экспорт результатов в CSV файл для отчёта и открытия в Excel
+void export_csv(const std::string& filename, const std::vector<AggregateStats>& results) {
+    std::ofstream out(filename);
+    if (!out.is_open()) {
+        std::cerr << "Не удалось открыть файл для записи CSV: " << filename << "\n";
+        return;
+    }
+
+    out << "Demand,MaxDemand,Threshold,MeanProfit,StdProfit,MeanLostSales,MeanAvgStock,MeanOrders,MeanFillRate,MeanRevenue,MeanOrderCost,MeanHoldingCost\n";
+    for (const auto& r : results) {
+        out << "\"" << r.demand_name << "\","
+            << r.max_demand << ","
+            << r.threshold << ","
+            << r.mean_profit << ","
+            << r.std_profit << ","
+            << r.mean_lost_sales << ","
+            << r.mean_avg_stock << ","
+            << r.mean_orders << ","
+            << r.mean_fill_rate << ","
+            << r.mean_revenue << ","
+            << r.mean_order_cost << ","
+            << r.mean_holding_cost << "\n";
+    }
+    out.close();
+    std::cout << "Результаты успешно экспортированы в файл: " << filename << "\n";
+}
+
+
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -512,6 +540,7 @@ int main(int argc, char* argv[]) {
         auto results = run_full_simulation(num_experiments, seed);
         print_comparison_table(results);
         print_ascii_profit_chart(results);
+        export_csv("results.csv", results);
     }
     return 0;
 }
